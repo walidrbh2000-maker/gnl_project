@@ -12,19 +12,14 @@ FROM python:3.11-slim
 LABEL maintainer="Khidmeti <dev@khidmeti.dz>" \
       description="Simulateur MQTT Khidmeti"
 
-# --- Dépendances système minimales ---
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-         gcc \
-    && rm -rf /var/lib/apt/lists/*
-
 # --- Répertoire de travail ---
 WORKDIR /app
 
 # --- Dépendances Python ---
-# Copier d'abord requirements pour bénéficier du cache Docker layer
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Le simulateur n'a qu'une seule dépendance : paho-mqtt.
+# Pas de requirements.txt dans ce contexte de build → pip install direct.
+# gcc non nécessaire : paho-mqtt 2.0.0 est une wheel pure-Python.
+RUN pip install --no-cache-dir paho-mqtt==2.0.0
 
 # --- Code source ---
 COPY . .
