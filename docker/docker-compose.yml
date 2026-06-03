@@ -1,7 +1,10 @@
-# docker-compose.yml — Environnement de développement GNL IoT
+# docker-compose.yml — Environnement de développement GNL IoT (SANS TLS)
 # Emplacement : docker/docker-compose.yml
 # Usage : depuis la racine du projet → make start
 #         ou manuellement → docker compose -f docker/docker-compose.yml up -d
+#
+# ⚠️  TLS désactivé — prototype localhost uniquement.
+#     Port MQTT : 1883 (plain). Pour la production : 8883 + certificats X.509.
 #
 # IMPORTANT : tous les chemins relatifs (context, volumes) sont exprimés
 # par rapport à ce fichier (docker/), donc "../" remonte à la racine projet.
@@ -13,21 +16,38 @@ services:
     image: eclipse-mosquitto:2.0
     container_name: gnl_mosquitto
     ports:
-      - "8883:8883"
+      - "1883:1883"
     volumes:
       - ../raspberry_pi/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ../raspberry_pi/mqtt/acl:/mosquitto/config/acl:ro
+      # passwd est géré dans le conteneur via setup-mqtt (make setup-mqtt)
+      # ou pré-généré et monté en lecture seule :
+      # - ../raspberry_pi/mqtt/passwd:/mosquitto/config/passwd:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     networks:
       - gnl_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -t '$$SYS/#' -C 1 -i healthcheck --quiet 2>/dev/null || exit 1"]
+      # Healthcheck sur port 1883 (plain) — pas de flag TLS
+      # mosquitto_sub -C 1 : reçoit 1 message puis quitte → confirme que le broker répond
+      test:
+        - "CMD-SHELL"
+        - >
+          mosquitto_sub
+          -h localhost
+          -p 1883
+          -u gnl_dashboard
+          -P "GNL_Dash_2025!"
+          -t '$$SYS/broker/uptime'
+          -C 1
+          --quiet
+          -W 5
+          2>/dev/null || exit 1
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # ── InfluxDB 2.x ─────────────────────────────────────────────────────────────
   influxdb:
@@ -92,9 +112,11 @@ services:
     image: gnl_arduino_sim
     container_name: gnl_arduino_sim
     environment:
-      MQTT_HOST:  mosquitto
-      MQTT_PORT:  "8883"
-      SIM_SPEED:  "2"
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_USER: gnl_publisher
+      MQTT_PASS: "GNL_Secure_2025!"
+      SIM_SPEED: "2"
     networks:
       - gnl_net
     depends_on:
@@ -115,6 +137,9 @@ services:
       - "5000:5000"
     environment:
       MQTT_HOST:       mosquitto
+      MQTT_PORT:       "1883"
+      MQTT_USER_PUBLISHER: gnl_publisher
+      MQTT_PASS_PUBLISHER: "GNL_Secure_2025!"
       INFLUX_URL:      http://influxdb:8086
       INFLUX_TOKEN:    gnl_influx_token_secret_2025
       GNL_JWT_SECRET:  gnl_jwt_secret_change_in_prod
