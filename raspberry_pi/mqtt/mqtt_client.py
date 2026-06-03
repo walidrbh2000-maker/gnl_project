@@ -2,13 +2,26 @@
 """
 mqtt_client.py — Client MQTT (sans TLS) pour le système GNL
 
+BUG #3 CORRIGÉ :
+  - clean_session=True supprimé du constructeur mqtt.Client().
+    Dans paho-mqtt 2.0.0, passer clean_session avec protocol=MQTTv5
+    lève immédiatement :
+        ValueError: Clean session is not used for MQTT 5.0
+    → le conteneur gnl_edge_node crashait dès l'instanciation de
+      GNLMQTTClient(), avant même la première tentative de connexion.
+  - La session est maintenant gérée via le paramètre clean_start de
+    connect() : MQTT_CLEAN_START_FIRST_ONLY (défaut paho) → session
+    propre uniquement à la première connexion, conservée sur reconnexion.
+
 Broker : Mosquitto sur port 1883 (plain MQTT — prototype localhost)
 Sécurité : authentification username/password uniquement
-Topics : gnl/niveau, gnl/temperature, gnl/gaz, gnl/pression, gnl/ia, gnl/alerte, gnl/cmd
+Topics : gnl/niveau, gnl/temperature, gnl/gaz, gnl/pression,
+         gnl/ia, gnl/alerte, gnl/cmd
 
 ⚠️  TLS délibérément désactivé pour le développement local.
-    En production : réactiver TLS (port 8883, tls_set avec cafile/certfile/keyfile,
-    tls_insecure_set(False)) conformément à IEC 62443-3-3.
+    En production : réactiver TLS (port 8883, tls_set avec
+    cafile/certfile/keyfile, tls_insecure_set(False))
+    conformément à IEC 62443-3-3.
 
 Compatible : paho-mqtt 2.0.0 (CallbackAPIVersion.VERSION2 obligatoire)
 """
@@ -24,13 +37,11 @@ import paho.mqtt.client as mqtt
 log = logging.getLogger("gnl.mqtt")
 
 # ── Configuration — lecture des variables d'environnement ──────────────────────
-# Permet de surcharger via docker-compose.yml (environment:) ou .env
 BROKER_HOST = os.environ.get("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 KEEPALIVE   = 60
 CLIENT_ID   = "gnl_rpi4_edge"
 
-# Credentials (lus depuis l'environnement, fallback sur valeurs par défaut)
 MQTT_USER = os.environ.get("MQTT_USER_PUBLISHER", "gnl_publisher")
 MQTT_PASS = os.environ.get("MQTT_PASS_PUBLISHER", "GNL_Secure_2025!")
 
@@ -56,17 +67,23 @@ class GNLMQTTClient:
     """Client MQTT avec reconnexion automatique pour le système IoT GNL.
 
     Utilise l'API paho-mqtt 2.0.0 (CallbackAPIVersion.VERSION2) :
-    - on_connect  : (client, userdata, connect_flags, reason_code, properties)
+    - on_connect    : (client, userdata, connect_flags, reason_code, properties)
     - on_disconnect : (client, userdata, disconnect_flags, reason_code, properties)
+    - on_message    : (client, userdata, message)
     """
 
     def __init__(self) -> None:
-        # paho-mqtt 2.0.0 : CallbackAPIVersion.VERSION2 est obligatoire pour
-        # éviter le DeprecationWarning et garantir la compatibilité future.
+        # ── BUG #3 CORRIGÉ ────────────────────────────────────────────────────
+        # clean_session=True RETIRÉ.
+        # Raison : paho-mqtt 2.0.0 lève ValueError si clean_session est passé
+        # avec protocol=MQTTv5 (la spec MQTT 5.0 a remplacé "clean session"
+        # par "clean start", géré dans connect() via clean_start=).
+        # L'ancien code causait un crash immédiat du conteneur gnl_edge_node
+        # dès la ligne GNLMQTTClient() dans gnl_main.py.
+        # ─────────────────────────────────────────────────────────────────────
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=CLIENT_ID,
-            clean_session=True,
             protocol=mqtt.MQTTv5,
         )
         self._connected = False
@@ -100,6 +117,8 @@ class GNLMQTTClient:
         """Connexion bloquante avec retry jusqu'au succès."""
         while True:
             try:
+                # clean_start=MQTT_CLEAN_START_FIRST_ONLY (défaut paho) :
+                # session propre à la première connexion seulement.
                 self._client.connect(BROKER_HOST, BROKER_PORT, KEEPALIVE)
                 self._client.loop_start()
                 log.info("MQTT connecté : %s:%d", BROKER_HOST, BROKER_PORT)
@@ -136,8 +155,8 @@ class GNLMQTTClient:
 
     def publish_all(self, data: dict) -> None:
         """Publie toutes les mesures depuis le dict Arduino enrichi par l'IA."""
-        ts  = datetime.now(timezone.utc).isoformat()
-        ai  = data.get("ai", {})
+        ts = datetime.now(timezone.utc).isoformat()
+        ai = data.get("ai", {})
 
         payloads: dict[str, tuple[dict, int]] = {
             "niveau_r1": (
@@ -158,9 +177,9 @@ class GNLMQTTClient:
             ),
             "gaz": (
                 {
-                    "valeur":  data.get("g"),
-                    "unite":   "ADC",
-                    "niveau":  self._gas_level(data.get("g", 0)),
+                    "valeur":    data.get("g"),
+                    "unite":     "ADC",
+                    "niveau":    self._gas_level(data.get("g", 0)),
                     "timestamp": ts,
                 },
                 TOPICS["gaz"][1],
@@ -175,7 +194,7 @@ class GNLMQTTClient:
                     "global_risk":      ai.get("global_risk", 0),
                     "gas_alert":        ai.get("gas_alert"),
                     "overflow_risk":    ai.get("regression", {}).get("overflow_risk", False),
-                    "timestamp": ts,
+                    "timestamp":        ts,
                 },
                 TOPICS["ia_score"][1],
             ),
@@ -215,7 +234,9 @@ class GNLMQTTClient:
         except Exception as exc:
             log.warning("Erreur publication raw %s : %s", topic, exc)
 
-    def _publish_alert(self, alert_type: str, value: object, timestamp: str) -> None:
+    def _publish_alert(
+        self, alert_type: str, value: object, timestamp: str
+    ) -> None:
         severity = "CRITIQUE" if "DANGER" in str(alert_type) else "ÉLEVÉ"
         payload = {
             "type":      alert_type,
