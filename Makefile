@@ -1,6 +1,7 @@
 # ==============================================================================
-#  GNL IoT Edge — Makefile (corrigé)
+#  GNL IoT Edge — Makefile (prototype sans TLS)
 #  À placer à la RACINE du projet : gnl_project/Makefile
+#  ⚠️  Port MQTT : 1883 (plain). TLS désactivé pour développement local.
 #  Usage : make help
 # ==============================================================================
 
@@ -14,14 +15,13 @@
         download-gemma4 start-gemma4 stop-gemma4 \
         backup restore \
         check-deps check-ports check-serial \
-        update-passwords rotate-certs \
+        update-passwords \
         api-status api-login api-data api-alerts \
         mqtt-listen mqtt-publish-test \
         influx-query influx-backup \
         grafana-open dashboard-open \
         lint format \
-        docker-clean docker-logs docker-ps \
-        cert-info cert-renew
+        docker-clean docker-logs docker-ps
 
 # ── Couleurs ───────────────────────────────────────────────────────────────────
 RED    := \033[0;31m
@@ -54,6 +54,9 @@ RPI_HOST       ?= localhost
 API_URL        := http://$(RPI_HOST):5000/api/v1
 GRAFANA_URL    := http://$(RPI_HOST):3000
 INFLUX_URL     ?= http://$(RPI_HOST):8086
+
+# Port MQTT — lu depuis .env (MQTT_PORT=1883 en mode prototype sans TLS)
+MQTT_PORT      ?= 1883
 
 # Token JWT (récupéré dynamiquement)
 JWT_TOKEN      := $(shell curl -s -X POST $(API_URL)/auth/login \
@@ -90,7 +93,7 @@ start: check-deps .env
 	@echo -e "  $(CYAN)API REST$(NC)        →  http://$(RPI_HOST):5000/api/v1"
 	@echo -e "  $(CYAN)Grafana$(NC)         →  http://$(RPI_HOST):3000  (gnl_admin / GNL_Grafana_2025!)"
 	@echo -e "  $(CYAN)InfluxDB$(NC)        →  http://$(RPI_HOST):8086  (gnl_admin / GNL_Influx_2025!)"
-	@echo -e "  $(CYAN)MQTT TLS$(NC)        →  mqtts://$(RPI_HOST):8883"
+	@echo -e "  $(CYAN)MQTT plain$(NC)      →  mqtt://$(RPI_HOST):$(MQTT_PORT)  (sans TLS)"
 	@echo -e ""
 	@echo -e "  $(YELLOW)make logs$(NC)       → voir les logs en direct"
 	@echo -e "  $(YELLOW)make stop$(NC)       → arrêter tous les services"
@@ -149,6 +152,13 @@ status:
 	@echo -n "  Grafana     : " && \
 	 curl -sf http://$(RPI_HOST):3000/api/health > /dev/null 2>&1 \
 	 && echo -e "$(GREEN)● UP$(NC)" || echo -e "$(RED)● DOWN$(NC)"
+	@echo -n "  MQTT        : " && \
+	 docker exec gnl_mosquitto mosquitto_sub \
+	   -h localhost -p $(MQTT_PORT) \
+	   -u gnl_dashboard -P "GNL_Dash_2025!" \
+	   -t '$$SYS/broker/uptime' -C 1 --quiet -W 3 \
+	   > /dev/null 2>&1 \
+	 && echo -e "$(GREEN)● UP$(NC)" || echo -e "$(RED)● DOWN$(NC)"
 
 # ── ══════════════════════════════════════════════════════════════════════════ ──
 ##  📦  INSTALLATION
@@ -191,39 +201,23 @@ install-docker:
 ##  🔒  SÉCURITÉ
 # ── ══════════════════════════════════════════════════════════════════════════ ──
 
-## setup-security : Configure TLS, UFW, fail2ban, SSH
+## setup-security : Configure UFW, fail2ban, SSH (sans TLS MQTT en mode prototype)
 setup-security:
-	@echo -e "$(BLUE)► Configuration sécurité...$(NC)"
+	@echo -e "$(BLUE)► Configuration sécurité (sans TLS MQTT)...$(NC)"
 	@sudo bash $(RPI_DIR)/security/setup_security.sh
 
-## rotate-certs : Régénère les certificats TLS X.509
-rotate-certs:
-	@echo -e "$(YELLOW)⚠  Rotation des certificats TLS (redémarrage MQTT requis)...$(NC)"
-	@sudo bash $(RPI_DIR)/security/setup_security.sh
-	@sudo systemctl restart mosquitto 2>/dev/null || \
-	 $(COMPOSE) restart mosquitto 2>/dev/null || true
-	@echo -e "$(GREEN)✓ Certificats renouvelés$(NC)"
-
-## cert-info   : Affiche les informations des certificats TLS
-cert-info:
-	@echo -e "$(BOLD)$(BLUE)══ Certificats TLS ══$(NC)"
-	@[ -f /etc/mosquitto/certs/server.crt ] && \
-	 openssl x509 -in /etc/mosquitto/certs/server.crt -noout -subject -dates \
-	 || echo -e "$(YELLOW)  Certificats non trouvés (lancer make setup-security)$(NC)"
-
-## cert-renew  : Alias de rotate-certs
-cert-renew: rotate-certs
-
-## update-passwords : Met à jour les mots de passe MQTT
+## update-passwords : Met à jour les mots de passe MQTT dans le conteneur
 update-passwords:
 	@echo -e "$(YELLOW)► Mise à jour des mots de passe MQTT...$(NC)"
 	@read -p "Nouveau mot de passe pour gnl_publisher : " p1 && \
-	 sudo mosquitto_passwd -b /etc/mosquitto/passwd gnl_publisher "$$p1" && \
+	 docker exec gnl_mosquitto mosquitto_passwd \
+	   -b /mosquitto/config/passwd gnl_publisher "$$p1" && \
 	 echo -e "$(GREEN)✓ gnl_publisher mis à jour$(NC)"
 	@read -p "Nouveau mot de passe pour gnl_dashboard : " p2 && \
-	 sudo mosquitto_passwd -b /etc/mosquitto/passwd gnl_dashboard "$$p2" && \
+	 docker exec gnl_mosquitto mosquitto_passwd \
+	   -b /mosquitto/config/passwd gnl_dashboard "$$p2" && \
 	 echo -e "$(GREEN)✓ gnl_dashboard mis à jour$(NC)"
-	@sudo systemctl reload mosquitto 2>/dev/null || true
+	@docker exec gnl_mosquitto kill -HUP 1 2>/dev/null || true
 
 # ── ══════════════════════════════════════════════════════════════════════════ ──
 ##  🤖  SIMULATEUR ARDUINO
@@ -241,8 +235,15 @@ sim-leak:
 	@docker run --rm -d \
 	  --network gnl_net \
 	  --name gnl_sim_leak \
+	  -e MQTT_HOST=mosquitto \
+	  -e MQTT_PORT=$(MQTT_PORT) \
+	  -e MQTT_USER=gnl_publisher \
+	  -e MQTT_PASS="GNL_Secure_2025!" \
 	  gnl_arduino_sim python3 arduino_simulator.py \
-	  --mode mqtt --host mosquitto --port 8883 --scenario fuite_gaz \
+	    --mode mqtt \
+	    --host mosquitto \
+	    --port $(MQTT_PORT) \
+	    --scenario fuite_gaz \
 	  2>/dev/null || true
 	@echo -e "$(YELLOW)⚠  Scénario fuite gaz actif — surveiller les alertes$(NC)"
 
@@ -252,8 +253,15 @@ sim-overflow:
 	@docker run --rm -d \
 	  --network gnl_net \
 	  --name gnl_sim_overflow \
+	  -e MQTT_HOST=mosquitto \
+	  -e MQTT_PORT=$(MQTT_PORT) \
+	  -e MQTT_USER=gnl_publisher \
+	  -e MQTT_PASS="GNL_Secure_2025!" \
 	  gnl_arduino_sim python3 arduino_simulator.py \
-	  --mode mqtt --host mosquitto --port 8883 --scenario debordement \
+	    --mode mqtt \
+	    --host mosquitto \
+	    --port $(MQTT_PORT) \
+	    --scenario debordement \
 	  2>/dev/null || true
 	@echo -e "$(RED)⚠  Scénario débordement actif — ESD attendu !$(NC)"
 
@@ -355,38 +363,52 @@ stop-gemma4:
 ##  📊  MQTT
 # ── ══════════════════════════════════════════════════════════════════════════ ──
 
-## mqtt-listen : Écoute tous les topics MQTT en temps réel
-mqtt-listen:
-	@echo -e "$(BLUE)► Écoute MQTT (Ctrl+C pour arrêter)...$(NC)"
-	@docker exec gnl_mosquitto mosquitto_sub \
-	  -h localhost -p 8883 \
-	  -u gnl_dashboard -P "GNL_Dash_2025!" \
-	  --cafile /mosquitto/config/certs/ca.crt \
-	  -t "gnl/#" -v 2>/dev/null || \
-	mosquitto_sub \
-	  -h $(RPI_HOST) -p 8883 \
-	  -u gnl_dashboard -P "GNL_Dash_2025!" \
-	  --cafile /etc/mosquitto/certs/ca.crt \
-	  -t "gnl/#" -v
+## setup-mqtt  : Initialise les utilisateurs Mosquitto dans le conteneur
+setup-mqtt:
+	@echo -e "$(BLUE)► Configuration des utilisateurs Mosquitto...$(NC)"
+	@docker exec gnl_mosquitto sh -c "\
+	  mosquitto_passwd -c -b /mosquitto/config/passwd \
+	    gnl_publisher 'GNL_Secure_2025!' && \
+	  mosquitto_passwd    -b /mosquitto/config/passwd \
+	    gnl_dashboard 'GNL_Dash_2025!'  && \
+	  mosquitto_passwd    -b /mosquitto/config/passwd \
+	    gnl_admin 'GNL_Admin_2025!'" \
+	  2>/dev/null || true
+	@docker exec gnl_mosquitto kill -HUP 1 2>/dev/null || true
+	@echo -e "$(GREEN)✓ Utilisateurs MQTT créés$(NC)"
+	@echo -e "$(YELLOW)  → Si erreur de connexion, relancer : make setup-mqtt$(NC)"
 
-## mqtt-publish-test : Publie un message de test MQTT
+## mqtt-listen : Écoute tous les topics MQTT en temps réel (plain, sans TLS)
+mqtt-listen:
+	@echo -e "$(BLUE)► Écoute MQTT plain (port $(MQTT_PORT)) — Ctrl+C pour arrêter...$(NC)"
+	@docker exec gnl_mosquitto mosquitto_sub \
+	  -h localhost \
+	  -p $(MQTT_PORT) \
+	  -u gnl_dashboard \
+	  -P "GNL_Dash_2025!" \
+	  -t "gnl/#" \
+	  -v \
+	  2>/dev/null || \
+	mosquitto_sub \
+	  -h $(RPI_HOST) \
+	  -p $(MQTT_PORT) \
+	  -u gnl_dashboard \
+	  -P "GNL_Dash_2025!" \
+	  -t "gnl/#" \
+	  -v
+
+## mqtt-publish-test : Publie un message de test MQTT (plain, sans TLS)
 mqtt-publish-test:
-	@echo -e "$(BLUE)► Publication message test MQTT...$(NC)"
+	@echo -e "$(BLUE)► Publication message test MQTT (port $(MQTT_PORT))...$(NC)"
 	@docker exec gnl_mosquitto mosquitto_pub \
-	  -h localhost -p 8883 \
-	  -u gnl_publisher -P "GNL_Secure_2025!" \
-	  --cafile /mosquitto/config/certs/ca.crt \
+	  -h localhost \
+	  -p $(MQTT_PORT) \
+	  -u gnl_publisher \
+	  -P "GNL_Secure_2025!" \
 	  -t "gnl/test" \
 	  -m '{"test":true,"source":"makefile","timestamp":"$(shell date -Iseconds)"}' \
-	  2>/dev/null || echo -e "$(YELLOW)mosquitto pas dans Docker — essai direct$(NC)"
-
-## setup-mqtt  : Configure les utilisateurs Mosquitto
-setup-mqtt:
-	@echo -e "$(BLUE)► Configuration Mosquitto...$(NC)"
-	@docker exec gnl_mosquitto mosquitto_passwd \
-	  -b /mosquitto/config/passwd gnl_publisher "GNL_Secure_2025!" 2>/dev/null || \
-	sudo mosquitto_passwd -b /etc/mosquitto/passwd gnl_publisher "GNL_Secure_2025!" 2>/dev/null || true
-	@echo -e "$(GREEN)✓ MQTT configuré$(NC)"
+	  && echo -e "$(GREEN)✓ Message publié$(NC)" \
+	  || echo -e "$(RED)✗ Échec — broker accessible ?$(NC)"
 
 # ── ══════════════════════════════════════════════════════════════════════════ ──
 ##  🗄️  INFLUXDB
@@ -521,24 +543,22 @@ dashboard-open:
 ## check-deps  : Vérifie que toutes les dépendances sont présentes
 check-deps:
 	@echo -e "$(BLUE)► Vérification des dépendances...$(NC)"
-	@echo -n "  docker      : " && which docker > /dev/null 2>&1 \
+	@echo -n "  docker         : " && which docker > /dev/null 2>&1 \
 	  && echo -e "$(GREEN)✓$(NC)" || (echo -e "$(RED)✗ non trouvé$(NC)" && exit 1)
 	@echo -n "  docker compose : " && docker compose version > /dev/null 2>&1 \
 	  && echo -e "$(GREEN)✓$(NC)" || (echo -e "$(RED)✗ non trouvé$(NC)" && exit 1)
-	@echo -n "  python3     : " && which python3 > /dev/null 2>&1 \
+	@echo -n "  python3        : " && which python3 > /dev/null 2>&1 \
 	  && echo -e "$(GREEN)✓ ($(shell python3 --version))$(NC)" || echo -e "$(RED)✗$(NC)"
-	@echo -n "  pip3        : " && which pip3 > /dev/null 2>&1 \
+	@echo -n "  pip3           : " && which pip3 > /dev/null 2>&1 \
 	  && echo -e "$(GREEN)✓$(NC)" || echo -e "$(RED)✗$(NC)"
-	@echo -n "  curl        : " && which curl > /dev/null 2>&1 \
-	  && echo -e "$(GREEN)✓$(NC)" || echo -e "$(YELLOW)⚠ non trouvé$(NC)"
-	@echo -n "  openssl     : " && which openssl > /dev/null 2>&1 \
+	@echo -n "  curl           : " && which curl > /dev/null 2>&1 \
 	  && echo -e "$(GREEN)✓$(NC)" || echo -e "$(YELLOW)⚠ non trouvé$(NC)"
 	@echo -e "$(GREEN)✓ Vérification terminée$(NC)"
 
 ## check-ports : Vérifie que les ports requis sont disponibles
 check-ports:
 	@echo -e "$(BOLD)$(BLUE)══ Vérification des ports ══$(NC)"
-	@for port in 8883 8086 5000 3000 8080; do \
+	@for port in $(MQTT_PORT) 8086 5000 3000 8080; do \
 	  echo -n "  Port $$port : "; \
 	  if ss -tlnp 2>/dev/null | grep -q ":$$port " || \
 	     netstat -tlnp 2>/dev/null | grep -q ":$$port "; then \
@@ -624,7 +644,8 @@ docker-logs:
 	@echo -e "$(YELLOW)► Fichier .env non trouvé — création avec valeurs par défaut...$(NC)"
 	@printf '%s\n' \
 	  '# GNL IoT Edge — Configuration générée automatiquement' \
-	  '# ⚠  Modifier les mots de passe avant déploiement !' \
+	  '# ⚠  TLS désactivé — prototype localhost uniquement' \
+	  '# ⚠  Modifier les mots de passe avant tout déploiement !' \
 	  '' \
 	  'HF_TOKEN=' \
 	  'GEMMA4_VARIANT=e2b' \
@@ -651,7 +672,7 @@ docker-logs:
 	  'DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=gnl_influx_token_secret_2025' \
 	  '' \
 	  'MQTT_HOST=mosquitto' \
-	  'MQTT_PORT=8883' \
+	  'MQTT_PORT=1883' \
 	  'MQTT_USER_PUBLISHER=gnl_publisher' \
 	  'MQTT_PASS_PUBLISHER=GNL_Secure_2025!' \
 	  'MQTT_USER_DASHBOARD=gnl_dashboard' \
@@ -685,9 +706,9 @@ docker-logs:
 ## help        : Affiche cette aide
 help:
 	@echo -e ""
-	@echo -e "$(BOLD)$(CYAN)╔══════════════════════════════════════════════════════════╗$(NC)"
-	@echo -e "$(BOLD)$(CYAN)║        GNL IoT Edge — Makefile  (M2 RSID 2025-2026)     ║$(NC)"
-	@echo -e "$(BOLD)$(CYAN)╚══════════════════════════════════════════════════════════╝$(NC)"
+	@echo -e "$(BOLD)$(CYAN)╔════════════════════════════════════════════════════════════╗$(NC)"
+	@echo -e "$(BOLD)$(CYAN)║   GNL IoT Edge — Makefile  (M2 RSID 2025-2026, sans TLS)  ║$(NC)"
+	@echo -e "$(BOLD)$(CYAN)╚════════════════════════════════════════════════════════════╝$(NC)"
 	@echo -e ""
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //' | \
 	  awk 'BEGIN{FS=":"} \
@@ -696,11 +717,13 @@ help:
 	@echo -e ""
 	@echo -e "$(BOLD)Exemples rapides :$(NC)"
 	@echo -e "  $(GREEN)make start$(NC)              → Tout démarrer (première fois)"
-	@echo -e "  $(GREEN)make sim-leak$(NC)            → Simuler une fuite de gaz"
-	@echo -e "  $(GREEN)make test$(NC)                → Lancer les tests unitaires"
-	@echo -e "  $(GREEN)make logs$(NC)                → Voir les logs en direct"
-	@echo -e "  $(GREEN)make api-data$(NC)            → Lire les mesures capteurs"
-	@echo -e "  $(GREEN)make download-gemma4$(NC)     → Télécharger l'IA locale"
+	@echo -e "  $(GREEN)make setup-mqtt$(NC)         → Créer les utilisateurs MQTT"
+	@echo -e "  $(GREEN)make mqtt-listen$(NC)        → Écouter les topics MQTT"
+	@echo -e "  $(GREEN)make sim-leak$(NC)           → Simuler une fuite de gaz"
+	@echo -e "  $(GREEN)make test$(NC)               → Lancer les tests unitaires"
+	@echo -e "  $(GREEN)make logs$(NC)               → Voir les logs en direct"
+	@echo -e "  $(GREEN)make api-data$(NC)           → Lire les mesures capteurs"
+	@echo -e "  $(GREEN)make download-gemma4$(NC)    → Télécharger l'IA locale"
 	@echo -e ""
 	@echo -e "$(BOLD)Structure du projet :$(NC)"
 	@echo -e "  $(CYAN)$(PROJECT_DIR)/$(NC)"
@@ -710,6 +733,9 @@ help:
 	@echo -e "  ├── raspberry_pi/     ← Code Python Edge Node"
 	@echo -e "  ├── arduino/          ← Code Arduino .ino"
 	@echo -e "  └── tests/            ← Tests unitaires pytest"
+	@echo -e ""
+	@echo -e "$(BOLD)$(YELLOW)⚠  Mode prototype (sans TLS) — MQTT port 1883$(NC)"
+	@echo -e "$(YELLOW)   Pour la production : activer TLS (port 8883) + certificats X.509$(NC)"
 	@echo -e ""
 
 # Alias pratiques
