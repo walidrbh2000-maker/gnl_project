@@ -1,49 +1,61 @@
 # ============================================================
-# Dockerfile.simulator
-# Fix Bug #3 : `--port 8883` était hardcodé dans le CMD exec-form,
-# écrasant la valeur de MQTT_PORT transmise par docker-compose.
+# docker/Dockerfile.simulator
 #
-# Correction : CMD en shell-form  →  $MQTT_PORT est bien expandé.
+# BUG #1 CORRIGÉ :
+#   Le CMD pointait vers "simulator.py" (inexistant à la racine du context).
+#   Le vrai fichier est "raspberry_pi/scripts/arduino_simulator.py".
+#   Build context = racine projet ("..") → chemin relatif correct ci-dessous.
+#
+# BUG #3 (hérité) maintenu corrigé :
+#   CMD en shell-form → $MQTT_HOST / $MQTT_PORT sont bien expandés
+#   au runtime (vs exec-form qui ne fait PAS l'expansion des variables shell).
 # ============================================================
 
 FROM python:3.11-slim
 
 # --- Métadonnées ---
-LABEL maintainer="Khidmeti <dev@khidmeti.dz>" \
-      description="Simulateur MQTT Khidmeti"
+LABEL maintainer="M2 RSID 2025-2026" \
+      description="Simulateur Arduino GNL — MQTT plain (prototype localhost)"
 
 # --- Répertoire de travail ---
 WORKDIR /app
 
 # --- Dépendances Python ---
-# Le simulateur n'a qu'une seule dépendance : paho-mqtt.
-# Pas de requirements.txt dans ce contexte de build → pip install direct.
-# gcc non nécessaire : paho-mqtt 2.0.0 est une wheel pure-Python.
+# paho-mqtt 2.0.0 : wheel pure-Python, pas besoin de gcc
 RUN pip install --no-cache-dir paho-mqtt==2.0.0
 
 # --- Code source ---
+# Build context = racine projet ("..") → tout le projet est disponible
 COPY . .
 
 # --- Variables d'environnement par défaut ---
-# Surchargeables dans docker-compose ou au runtime
-ENV MQTT_HOST=gnl_mosquitto \
+# Toutes surchargeables dans docker-compose ou au runtime
+ENV MQTT_HOST=mosquitto \
     MQTT_PORT=1883 \
-    MQTT_USER="" \
-    MQTT_PASSWORD="" \
+    MQTT_USER=gnl_publisher \
+    MQTT_PASS=GNL_Secure_2025! \
+    SIM_MODE=mqtt \
+    SIM_INTERVAL=2.0 \
+    SIM_SCENARIO=normal \
     PYTHONUNBUFFERED=1
 
 # --- Healthcheck interne ---
-# Vérifie que le processus Python est vivant
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD pgrep -f "simulator.py" > /dev/null || exit 1
+    CMD pgrep -f "arduino_simulator.py" > /dev/null || exit 1
 
 # --- Point d'entrée ---
-# IMPORTANT : shell-form (pas exec-form) pour que $MQTT_PORT
-# soit résolu depuis l'environnement au moment du lancement.
-# exec-form ["python", "simulator.py", "--port", "$MQTT_PORT"]
-# ne fait PAS l'expansion des variables shell → bug #3.
-CMD python simulator.py \
-        --host  "$MQTT_HOST" \
-        --port  "$MQTT_PORT" \
-        --user  "$MQTT_USER" \
-        --password "$MQTT_PASSWORD"
+# IMPORTANT : shell-form (pas exec-form) pour l'expansion des variables shell.
+#
+# BUG #1 CORRIGÉ : chemin corrigé de "simulator.py"
+#                  vers "raspberry_pi/scripts/arduino_simulator.py"
+#
+# --mode mqtt   : forcé ici pour le mode Docker (la valeur par défaut du script
+#                 est "stdout" quand SIM_MODE n'est pas défini dans l'ENV parent,
+#                 mais SIM_MODE=mqtt est désormais déclaré dans ENV ci-dessus).
+#                 Passer l'argument explicitement garantit le comportement même
+#                 si la variable est écrasée accidentellement.
+#
+# --host / --port / --interval / --scenario : lus depuis les ENV par argparse,
+#                 pas besoin de les passer en args (DRY). Seul --mode est explicite
+#                 pour éviter la régression vers stdout en mode conteneur.
+CMD python raspberry_pi/scripts/arduino_simulator.py --mode mqtt
