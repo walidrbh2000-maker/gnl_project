@@ -15,22 +15,55 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: gnl_mosquitto
+
+    # ── Fix entrypoint ────────────────────────────────────────────────────────
+    # L'image eclipse-mosquitto:2.0 a son propre /docker-entrypoint.sh qui
+    # fait un `chown -R mosquitto /mosquitto`. Avec des bind-mounts :ro
+    # (mosquitto.conf, acl), ce chown échoue → set -e → exit → crash.
+    #
+    # Solution : on bypass complètement l'entrypoint de l'image et on crée
+    # les utilisateurs MQTT + on lance mosquitto directement en une seule
+    # commande shell, sans jamais toucher aux fichiers :ro.
+    #
+    # Les variables MQTT_USER_* / MQTT_PASS_* sont lues depuis .env
+    # (déjà déclarées : MQTT_USER_PUBLISHER, MQTT_USER_DASHBOARD, etc.)
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /mosquitto/data /mosquitto/log
+
+        # Création des trois utilisateurs MQTT dans /mosquitto/data/passwd
+        # (volume nommé writable — PAS dans /config qui est :ro)
+        mosquitto_passwd -c -b /mosquitto/data/passwd \
+          "$${MQTT_USER_PUBLISHER}" "$${MQTT_PASS_PUBLISHER}"
+        mosquitto_passwd    -b /mosquitto/data/passwd \
+          "$${MQTT_USER_DASHBOARD}" "$${MQTT_PASS_DASHBOARD}"
+        mosquitto_passwd    -b /mosquitto/data/passwd \
+          "$${MQTT_USER_ADMIN}" "$${MQTT_PASS_ADMIN}"
+
+        chmod 600 /mosquitto/data/passwd
+        echo "[mosquitto] passwd créé dans /mosquitto/data/passwd"
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+
+    env_file:
+      - ../.env
+
     ports:
       - "1883:1883"
+
     volumes:
       - ../raspberry_pi/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ../raspberry_pi/mqtt/acl:/mosquitto/config/acl:ro
-      # passwd est géré dans le conteneur via setup-mqtt (make setup-mqtt)
-      # ou pré-généré et monté en lecture seule :
-      # - ../raspberry_pi/mqtt/passwd:/mosquitto/config/passwd:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
+
     networks:
       - gnl_net
+
     restart: unless-stopped
+
     healthcheck:
-      # Healthcheck sur port 1883 (plain) — pas de flag TLS
-      # mosquitto_sub -C 1 : reçoit 1 message puis quitte → confirme que le broker répond
       test:
         - "CMD-SHELL"
         - >
@@ -136,14 +169,14 @@ services:
     ports:
       - "5000:5000"
     environment:
-      MQTT_HOST:       mosquitto
-      MQTT_PORT:       "1883"
+      MQTT_HOST:           mosquitto
+      MQTT_PORT:           "1883"
       MQTT_USER_PUBLISHER: gnl_publisher
       MQTT_PASS_PUBLISHER: "GNL_Secure_2025!"
-      INFLUX_URL:      http://influxdb:8086
-      INFLUX_TOKEN:    gnl_influx_token_secret_2025
-      GNL_JWT_SECRET:  gnl_jwt_secret_change_in_prod
-      SERIAL_PORT:     SIMULATED
+      INFLUX_URL:          http://influxdb:8086
+      INFLUX_TOKEN:        gnl_influx_token_secret_2025
+      GNL_JWT_SECRET:      gnl_jwt_secret_change_in_prod
+      SERIAL_PORT:         SIMULATED
     volumes:
       - ../raspberry_pi:/opt/gnl:ro
       - gnl_logs:/var/log/gnl
