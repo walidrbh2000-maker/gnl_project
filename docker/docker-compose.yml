@@ -1,8 +1,10 @@
-version: "3.8"
-
 # docker-compose.yml — Environnement de développement GNL IoT
-# Usage : docker compose up -d
-# Simule l'environnement Raspberry Pi 4 sans le matériel physique
+# Emplacement : docker/docker-compose.yml
+# Usage : depuis la racine du projet → make start
+#         ou manuellement → docker compose -f docker/docker-compose.yml up -d
+#
+# IMPORTANT : tous les chemins relatifs (context, volumes) sont exprimés
+# par rapport à ce fichier (docker/), donc "../" remonte à la racine projet.
 
 services:
 
@@ -13,18 +15,19 @@ services:
     ports:
       - "8883:8883"
     volumes:
-      - ./raspberry_pi/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./raspberry_pi/mqtt/acl:/mosquitto/config/acl:ro
+      - ../raspberry_pi/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ../raspberry_pi/mqtt/acl:/mosquitto/config/acl:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     networks:
       - gnl_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "test", "-m", "ping"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -t '$$SYS/#' -C 1 -i healthcheck --quiet 2>/dev/null || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 10s
 
   # ── InfluxDB 2.x ─────────────────────────────────────────────────────────────
   influxdb:
@@ -49,8 +52,9 @@ services:
     healthcheck:
       test: ["CMD", "influx", "ping"]
       interval: 30s
-      timeout: 5s
-      retries: 3
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # ── Grafana ──────────────────────────────────────────────────────────────────
   grafana:
@@ -65,36 +69,47 @@ services:
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/gnl_dashboard.json
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./raspberry_pi/dashboard/grafana_dashboard.json:/etc/grafana/provisioning/dashboards/gnl_dashboard.json:ro
+      - ../raspberry_pi/dashboard/grafana_dashboard.json:/etc/grafana/provisioning/dashboards/gnl_dashboard.json:ro
     networks:
       - gnl_net
     depends_on:
-      - influxdb
+      influxdb:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
-  # ── Simulateur Arduino (pour développement sans hardware) ────────────────────
+  # ── Simulateur Arduino ───────────────────────────────────────────────────────
+  # Activer avec : docker compose --profile simulation up -d
   arduino_simulator:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.simulator
+    image: gnl_arduino_sim
     container_name: gnl_arduino_sim
     environment:
       MQTT_HOST:  mosquitto
       MQTT_PORT:  "8883"
-      SIM_SPEED:  "2"    # intervalle en secondes entre mesures
+      SIM_SPEED:  "2"
     networks:
       - gnl_net
     depends_on:
-      - mosquitto
+      mosquitto:
+        condition: service_healthy
     restart: unless-stopped
     profiles:
-      - simulation   # activer avec : docker compose --profile simulation up
+      - simulation
 
   # ── API REST + Edge AI ────────────────────────────────────────────────────────
   gnl_edge:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.edge
+    image: gnl_edge_node
     container_name: gnl_edge_node
     ports:
       - "5000:5000"
@@ -103,16 +118,24 @@ services:
       INFLUX_URL:      http://influxdb:8086
       INFLUX_TOKEN:    gnl_influx_token_secret_2025
       GNL_JWT_SECRET:  gnl_jwt_secret_change_in_prod
-      SERIAL_PORT:     SIMULATED   # mode simulé sans Arduino
+      SERIAL_PORT:     SIMULATED
     volumes:
-      - ./raspberry_pi:/opt/gnl:ro
+      - ../raspberry_pi:/opt/gnl:ro
       - gnl_logs:/var/log/gnl
     networks:
       - gnl_net
     depends_on:
-      - mosquitto
-      - influxdb
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   mosquitto_data:

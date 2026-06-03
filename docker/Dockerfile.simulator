@@ -1,9 +1,19 @@
 FROM python:3.11-slim
 
+# Métadonnées
+LABEL maintainer="M2 RSID 2025-2026"
+LABEL description="GNL IoT — Simulateur Arduino (développement sans hardware)"
+
 WORKDIR /opt/gnl_sim
 
-RUN pip install --no-cache-dir paho-mqtt
+# Installation dépendance MQTT uniquement
+RUN pip install --no-cache-dir paho-mqtt==2.0.0
 
+# context = racine projet → raspberry_pi/scripts/ accessible directement
 COPY raspberry_pi/scripts/arduino_simulator.py .
 
-CMD ["python3", "arduino_simulator.py", "--mode", "mqtt", "--host", "mosquitto", "--port", "8883", "--scenario", "normal"]
+CMD ["python3", "arduino_simulator.py", \
+     "--mode", "mqtt", \
+     "--host", "mosquitto", \
+     "--port", "8883", \
+     "--scenario", "normal"]
