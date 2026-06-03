@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GNL Edge Monitor — Authentification</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #060d1a;
+  --bg2:      #0a1628;
+  --bg3:      #0f1f38;
+  --accent:   #00d4ff;
+  --accent2:  #00ff9d;
+  --danger:   #ff4060;
+  --warn:     #ffb020;
+  --border:   rgba(0,212,255,0.18);
+  --border2:  rgba(0,212,255,0.08);
+  --text:     #cde8ff;
+  --muted:    #4a7fa8;
+  --mono:     'Share Tech Mono', monospace;
+  --sans:     'Exo 2', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── GRID BACKGROUND ─── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none; z-index: 0;
+}
+
+/* ─── SCAN LINE ─── */
+body::after {
+  content: '';
+  position: fixed; top: -100%; left: 0; right: 0; height: 200px;
+  background: linear-gradient(transparent, rgba(0,212,255,0.04), transparent);
+  animation: scan 6s linear infinite;
+  pointer-events: none; z-index: 1;
+}
+@keyframes scan { to { top: 110%; } }
+
+/* ─── PAGES ─── */
+.page { display: none; min-height: 100vh; position: relative; z-index: 2; }
+.page.active { display: flex; }
+
+/* ══════════════════════════════
+   LOGIN PAGE
+══════════════════════════════ */
+#login-page {
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 2rem;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-logo {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.logo-hex {
+  display: inline-block;
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.hex-ring {
+  width: 80px; height: 80px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto;
+  animation: pulse-ring 3s ease-in-out infinite;
+  position: relative;
+}
+
+.hex-ring::before {
+  content: '';
+  position: absolute; inset: -8px;
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 50%;
+  animation: pulse-ring 3s ease-in-out infinite 0.5s;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,212,255,0.4); }
+  50% { box-shadow: 0 0 20px 8px rgba(0,212,255,0.1); }
+}
+
+.hex-icon {
+  font-family: var(--mono);
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.login-title {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--accent);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.login-sub {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 2px;
+  font-family: var(--mono);
+}
+
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.field-group { margin-bottom: 1.25rem; }
+
+.field-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.field-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.field-icon {
+  position: absolute; left: 14px;
+  font-size: 16px; color: var(--muted);
+  font-family: var(--mono);
+  z-index: 1;
+}
+
+.field-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 12px 14px 12px 42px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.field-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.08);
+}
+
+.field-input::placeholder { color: #2a4a6a; }
+
+.role-select {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.role-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.role-btn:hover { border-color: var(--border); color: var(--text); }
+.role-btn.selected {
+  border-color: var(--accent);
+  background: rgba(0,212,255,0.06);
+  color: var(--accent);
+}
+
+.role-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+
+.login-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 3px;
+  cursor: pointer;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.login-btn::before {
+  content: '';
+  position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.15), transparent);
+  transition: left 0.4s;
+}
+
+.login-btn:hover::before { left: 100%; }
+.login-btn:hover { background: rgba(0,212,255,0.08); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+
+.login-error {
+  background: rgba(255,64,96,0.1);
+  border: 1px solid rgba(255,64,96,0.3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 1rem;
+  display: none;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 1.5rem;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+}
+
+.status-dot { width: 6px; height: 6px; border-radius: 50%; animation: blink 2s ease-in-out infinite; }
+.dot-green { background: var(--accent2); animation-delay: 0s; }
+.dot-blue  { background: var(--accent);  animation-delay: 0.6s; }
+.dot-warn  { background: var(--warn);    animation-delay: 1.2s; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.status-txt { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; flex: 1; }
+
+/* ══════════════════════════════
+   DASHBOARD PAGE
+══════════════════════════════ */
+#dash-page {
+  flex-direction: column;
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+}
+
+.nav-brand {
+  display: flex; align-items: center; gap: 12px;
+}
+
+.nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); animation: blink 2s infinite; }
+
+.nav-title { font-family: var(--mono); font-size: 14px; color: var(--accent); letter-spacing: 2px; }
+
+.nav-right { display: flex; align-items: center; gap: 16px; }
+
+.nav-user {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px; color: var(--muted);
+}
+
+.user-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(0,212,255,0.1);
+  border: 1px solid var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--accent);
+}
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid rgba(255,64,96,0.3);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+.logout-btn:hover { background: rgba(255,64,96,0.08); border-color: var(--danger); }
+
+.dash-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 200px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border2);
+  padding: 1rem 0;
+  flex-shrink: 0;
+}
+
+.sidebar-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+  border-left: 2px solid transparent;
+}
+
+.sidebar-item:hover { color: var(--text); background: rgba(0,212,255,0.04); }
+.sidebar-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(0,212,255,0.06); }
+.sidebar-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.sidebar-section {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #1e3a5f;
+  letter-spacing: 3px;
+  padding: 16px 20px 6px;
+  text-transform: uppercase;
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── METRIC CARDS ─── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.metric-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.metric-card:hover { border-color: var(--border); }
+
+.metric-card::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+}
+
+.mc-green::after { background: var(--accent2); }
+.mc-blue::after  { background: var(--accent); }
+.mc-warn::after  { background: var(--warn); }
+.mc-danger::after{ background: var(--danger); }
+
+.mc-label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+.mc-value { font-family: var(--mono); font-size: 28px; font-weight: 600; margin-bottom: 4px; }
+.mc-sub   { font-size: 11px; color: var(--muted); }
+.mc-green .mc-value { color: var(--accent2); }
+.mc-blue  .mc-value { color: var(--accent); }
+.mc-warn  .mc-value { color: var(--warn); }
+.mc-danger .mc-value { color: var(--danger); }
+
+.mc-badge {
+  position: absolute; top: 12px; right: 12px;
+  font-family: var(--mono); font-size: 9px;
+  padding: 2px 8px; border-radius: 20px;
+}
+.badge-ok { background: rgba(0,255,157,0.1); color: var(--accent2); border: 1px solid rgba(0,255,157,0.2); }
+.badge-warn { background: rgba(255,176,32,0.1); color: var(--warn); border: 1px solid rgba(255,176,32,0.2); }
+.badge-danger { background: rgba(255,64,96,0.1); color: var(--danger); border: 1px solid rgba(255,64,96,0.2); }
+
+/* ─── TANKS ─── */
+.tanks-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.tank-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.tank-title { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+
+.tank-visual {
+  display: flex; align-items: flex-end; gap: 12px;
+}
+
+.tank-cylinder {
+  width: 60px; height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg3);
+}
+
+.tank-fill {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  transition: height 1s ease;
+}
+
+.fill-green { background: rgba(0,255,157,0.3); border-top: 1px solid var(--accent2); }
+.fill-blue  { background: rgba(0,212,255,0.2); border-top: 1px solid var(--accent); }
+.fill-warn  { background: rgba(255,176,32,0.2); border-top: 1px solid var(--warn); }
+
+.tank-info { flex: 1; }
+.tank-pct  { font-family: var(--mono); font-size: 32px; font-weight: 600; color: var(--accent); }
+.tank-stat { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
+
+/* ─── CHART ─── */
+.chart-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.chart-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.chart-title-txt { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+
+.chart-pills { display: flex; gap: 6px; }
+.pill {
+  font-family: var(--mono); font-size: 9px; padding: 3px 10px;
+  border-radius: 20px; cursor: pointer; transition: all 0.15s;
+  border: 1px solid var(--border2); color: var(--muted);
+}
+.pill.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.06); }
+
+canvas.chart { width: 100%; height: 140px; display: block; }
+
+/* ─── ALERTS ─── */
+.alerts-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.alert-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border2);
+  font-family: var(--mono); font-size: 12px;
+}
+.alert-row:last-child { border-bottom: none; }
+
+.alert-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.alert-time { color: var(--muted); font-size: 11px; width: 60px; flex-shrink: 0; }
+.alert-msg  { flex: 1; color: var(--text); }
+.alert-level{ font-size: 10px; padding: 2px 8px; border-radius: 20px; }
+
+/* ─── NETWORK STATUS ─── */
+.net-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.net-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border2);
+  font-family: var(--mono); font-size: 12px;
+}
+.net-row:last-child { border-bottom: none; }
+.net-label { color: var(--muted); font-size: 11px; }
+.net-val   { color: var(--text); }
+.net-ok    { color: var(--accent2); }
+.net-active{ color: var(--accent); }
+
+.bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ─── ANIMATIONS ─── */
+@keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+.metric-card, .tank-card, .chart-card, .alerts-card, .net-card {
+  animation: fadeIn 0.4s ease both;
+}
+.metric-card:nth-child(1){animation-delay:0.05s}
+.metric-card:nth-child(2){animation-delay:0.10s}
+.metric-card:nth-child(3){animation-delay:0.15s}
+.metric-card:nth-child(4){animation-delay:0.20s}
+
+.loading-bar {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), transparent);
+  background-size: 200% 100%;
+  animation: loading 1.5s linear;
+}
+@keyframes loading { from{background-position:200%} to{background-position:-200%} }
+</style>
+</head>
+<body>
+
+<!-- ══ LOGIN PAGE ══ -->
+<div class="page active" id="login-page">
+  <div class="login-container">
+    <div class="login-logo">
+      <div class="logo-hex">
+        <div class="hex-ring">
+          <span class="hex-icon">⬡</span>
+        </div>
+      </div>
+      <div class="login-title">GNL Edge Monitor</div>
+      <div class="login-sub">Système IoT Distribué — M2 RSID</div>
+    </div>
+
+    <div class="login-card">
+      <div class="loading-bar"></div>
+
+      <div style="margin-bottom:1.25rem;">
+        <div class="field-label">RÔLE SYSTÈME</div>
+        <div class="role-select">
+          <div class="role-btn selected" onclick="selectRole(this,'admin')">
+            <span class="role-icon">◈</span>Administrateur
+          </div>
+          <div class="role-btn" onclick="selectRole(this,'operator')">
+            <span class="role-icon">◉</span>Opérateur
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">IDENTIFIANT</label>
+        <div class="field-wrap">
+          <span class="field-icon">▸</span>
+          <input class="field-input" id="username" type="text" placeholder="admin / operator" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">MOT DE PASSE</label>
+        <div class="field-wrap">
+          <span class="field-icon">◈</span>
+          <input class="field-input" id="password" type="password" placeholder="••••••••">
+        </div>
+      </div>
+
+      <button class="login-btn" onclick="doLogin()">CONNEXION</button>
+
+      <div class="login-error" id="login-error">
+        ✕ Identifiants incorrects — Accès refusé
+      </div>
+
+      <div class="status-bar">
+        <div class="status-dot dot-green"></div>
+        <div class="status-txt">MQTT BROKER ACTIF</div>
+        <div class="status-dot dot-blue"></div>
+        <div class="status-txt">EDGE NODE CONNECTÉ</div>
+        <div class="status-dot dot-warn"></div>
+        <div class="status-txt">IA EN ÉCOUTE</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:1rem;font-family:var(--mono);font-size:10px;color:#1e3a5f;letter-spacing:2px;">
+      RPi4 EDGE · MQTT TLS 8883 · ISOLATION FOREST v2.1
+    </div>
+  </div>
+</div>
+
+<!-- ══ DASHBOARD PAGE ══ -->
+<div class="page" id="dash-page">
+
+  <nav class="topnav">
+    <div class="nav-brand">
+      <div class="nav-dot"></div>
+      <span class="nav-title">GNL EDGE MONITOR</span>
+      <span style="font-family:var(--mono);font-size:10px;color:#1e3a5f;letter-spacing:2px;margin-left:8px;">v2.1.0</span>
+    </div>
+    <div class="nav-right">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted);" id="clock">00:00:00</div>
+      <div class="nav-user">
+        <div class="user-avatar" id="user-initial">A</div>
+        <span id="user-name">admin</span>
+      </div>
+      <button class="logout-btn" onclick="doLogout()">DÉCONNEXION</button>
+    </div>
+  </nav>
+
+  <div class="dash-body">
+    <aside class="sidebar">
+      <div class="sidebar-section">Surveillance</div>
+      <div class="sidebar-item active">
+        <span class="sidebar-icon">◈</span>Dashboard
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">▣</span>Réservoirs
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">◎</span>Capteurs
+      </div>
+      <div class="sidebar-section">Intelligence</div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">⬡</span>IA / Prédiction
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">▲</span>Alertes
+        <span style="margin-left:auto;background:rgba(255,64,96,0.15);color:var(--danger);border-radius:20px;font-size:9px;padding:1px 7px;font-family:var(--mono);">2</span>
+      </div>
+      <div class="sidebar-section">Système</div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">◌</span>Réseau MQTT
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">▸</span>Sécurité TLS
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-icon">◇</span>Journaux
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- METRICS -->
+      <div class="metrics-grid">
+        <div class="metric-card mc-green">
+          <span class="mc-badge badge-ok">NORMAL</span>
+          <div class="mc-label">NIVEAU R1</div>
+          <div class="mc-value" id="d-n1">82%</div>
+          <div class="mc-sub">Réservoir source</div>
+        </div>
+        <div class="metric-card mc-blue">
+          <span class="mc-badge badge-ok">NORMAL</span>
+          <div class="mc-label">NIVEAU R2</div>
+          <div class="mc-value" id="d-n2">34%</div>
+          <div class="mc-sub">Réservoir destination</div>
+        </div>
+        <div class="metric-card mc-green">
+          <span class="mc-badge badge-ok">SÉCURISÉ</span>
+          <div class="mc-label">GAZ MQ-4</div>
+          <div class="mc-value" id="d-gaz">0 ppm</div>
+          <div class="mc-sub">Méthane CH₄</div>
+        </div>
+        <div class="metric-card mc-blue">
+          <span class="mc-badge badge-ok">ACTIF</span>
+          <div class="mc-label">SCORE IA</div>
+          <div class="mc-value" id="d-ia">12%</div>
+          <div class="mc-sub">Anomalie globale</div>
+        </div>
+      </div>
+
+      <!-- TANKS -->
+      <div class="tanks-row">
+        <div class="tank-card">
+          <div class="tank-title">RÉSERVOIR 1 — SOURCE</div>
+          <div class="tank-visual">
+            <div class="tank-cylinder">
+              <div class="tank-fill fill-green" id="fill-r1" style="height:82%"></div>
+            </div>
+            <div class="tank-info">
+              <div class="tank-pct" id="pct-r1">82%</div>
+              <div class="tank-stat">HC-SR04: <span style="color:var(--accent2)">actif</span></div>
+              <div class="tank-stat">DS18B20: <span style="color:var(--accent)">22.3°C</span></div>
+              <div class="tank-stat">Pompe: <span id="pump-st" style="color:var(--muted)">OFF</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tank-card">
+          <div class="tank-title">RÉSERVOIR 2 — DESTINATION</div>
+          <div class="tank-visual">
+            <div class="tank-cylinder">
+              <div class="tank-fill fill-blue" id="fill-r2" style="height:34%"></div>
+            </div>
+            <div class="tank-info">
+              <div class="tank-pct" id="pct-r2" style="color:var(--accent)">34%</div>
+              <div class="tank-stat">HC-SR04: <span style="color:var(--accent2)">actif</span></div>
+              <div class="tank-stat">DS18B20: <span style="color:var(--accent)">21.8°C</span></div>
+              <div class="tank-stat">Vanne: <span style="color:var(--muted)">fermée</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="net-card">
+          <div class="tank-title">RÉSEAU &amp; SÉCURITÉ</div>
+          <div class="net-row"><span class="net-label">MQTT Broker</span><span class="net-ok">● ACTIF</span></div>
+          <div class="net-row"><span class="net-label">TLS 1.3</span><span class="net-ok">● CHIFFRÉ</span></div>
+          <div class="net-row"><span class="net-label">Port</span><span class="net-val">8883</span></div>
+          <div class="net-row"><span class="net-label">Topics actifs</span><span class="net-active">4 / 4</span></div>
+          <div class="net-row"><span class="net-label">RPi4 Edge</span><span class="net-ok">● EN LIGNE</span></div>
+          <div class="net-row"><span class="net-label">Latence</span><span class="net-val" id="d-latency">8 ms</span></div>
+        </div>
+      </div>
+
+      <!-- CHART + ALERTS -->
+      <div class="bottom-row">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title-txt">HISTORIQUE NIVEAUX</span>
+            <div class="chart-pills">
+              <div class="pill active">30s</div>
+              <div class="pill">5min</div>
+              <div class="pill">1h</div>
+            </div>
+          </div>
+          <canvas id="c-hist" class="chart" width="600" height="140"></canvas>
+        </div>
+
+        <div class="alerts-card">
+          <div class="tank-title" style="margin-bottom:8px;">JOURNAL ALERTES</div>
+          <div class="alert-row">
+            <div class="alert-dot" style="background:var(--accent2)"></div>
+            <span class="alert-time">00:02</span>
+            <span class="alert-msg">Système démarré — MQTT actif</span>
+            <span class="alert-level" style="background:rgba(0,255,157,0.1);color:var(--accent2);border:1px solid rgba(0,255,157,0.2)">INFO</span>
+          </div>
+          <div class="alert-row">
+            <div class="alert-dot" style="background:var(--accent2)"></div>
+            <span class="alert-time">00:03</span>
+            <span class="alert-msg">IA initialisée — Isolation Forest chargé</span>
+            <span class="alert-level" style="background:rgba(0,255,157,0.1);color:var(--accent2);border:1px solid rgba(0,255,157,0.2)">INFO</span>
+          </div>
+          <div class="alert-row">
+            <div class="alert-dot" style="background:var(--warn)"></div>
+            <span class="alert-time">00:07</span>
+            <span class="alert-msg">R1 niveau en hausse rapide détectée</span>
+            <span class="alert-level" style="background:rgba(255,176,32,0.1);color:var(--warn);border:1px solid rgba(255,176,32,0.2)">WARN</span>
+          </div>
+          <div class="alert-row">
+            <div class="alert-dot" style="background:var(--danger);animation:blink 0.8s infinite"></div>
+            <span class="alert-time">00:09</span>
+            <span class="alert-msg">IA: prédiction débordement — pompe activée</span>
+            <span class="alert-level" style="background:rgba(255,64,96,0.1);color:var(--danger);border:1px solid rgba(255,64,96,0.2)">ALERTE</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+const USERS = { admin: '1234', operator: '0000' };
+let selectedRole = 'admin';
+let chartData = { r1: [], r2: [] };
+let simT = 0;
+
+for(let i=0;i<40;i++){
+  chartData.r1.push(80 + Math.sin(i*0.3)*3 + (Math.random()-0.5)*2);
+  chartData.r2.push(32 + Math.sin(i*0.2)*2 + (Math.random()-0.5)*1.5);
+}
+
+function selectRole(el, role) {
+  document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedRole = role;
+}
+
+function doLogin() {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value;
+  const err = document.getElementById('login-error');
+  if(USERS[u] && USERS[u] === p) {
+    err.style.display='none';
+    document.getElementById('login-page').classList.remove('active');
+    document.getElementById('dash-page').classList.add('active');
+    document.getElementById('user-name').textContent = u;
+    document.getElementById('user-initial').textContent = u[0].toUpperCase();
+    startDash();
+  } else {
+    err.style.display='block';
+    document.getElementById('password').value='';
+  }
+}
+
+document.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+function doLogout() {
+  document.getElementById('dash-page').classList.remove('active');
+  document.getElementById('login-page').classList.add('active');
+  document.getElementById('username').value='';
+  document.getElementById('password').value='';
+}
+
+function drawChart() {
+  const cv = document.getElementById('c-hist');
+  if(!cv) return;
+  const ctx = cv.getContext('2d');
+  const W=cv.offsetWidth||600, H=140;
+  cv.width=W; cv.height=H;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0a1628'; ctx.fillRect(0,0,W,H);
+
+  const minV=20,maxV=100,range=maxV-minV;
+  const toY=v=>H-8-((v-minV)/range)*(H-16);
+  const toX=(i,n)=>8+i*(W-16)/(n-1);
+  const n=chartData.r1.length;
+
+  ctx.strokeStyle='#1e2d4a'; ctx.lineWidth=0.5;
+  [30,50,70,90].forEach(v=>{
+    const y=toY(v);
+    ctx.beginPath(); ctx.moveTo(8,y); ctx.lineTo(W-8,y); ctx.stroke();
+    ctx.fillStyle='#1e3a5f'; ctx.font='9px monospace'; ctx.fillText(v+'%',W-22,y-2);
+  });
+
+  [[chartData.r1,'#00ff9d'],[chartData.r2,'#00d4ff']].forEach(([data,c])=>{
+    ctx.strokeStyle=c; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    data.forEach((v,i)=>{
+      const x=toX(i,n),y=toY(v);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  });
+
+  ctx.fillStyle='#00ff9d'; ctx.font='9px monospace'; ctx.fillText('— R1',10,H-4);
+  ctx.fillStyle='#00d4ff'; ctx.fillText('— R2',50,H-4);
+}
+
+function updateClock() {
+  const now=new Date();
+  document.getElementById('clock').textContent=
+    String(now.getHours()).padStart(2,'0')+':'+
+    String(now.getMinutes()).padStart(2,'0')+':'+
+    String(now.getSeconds()).padStart(2,'0');
+}
+
+function startDash() {
+  setInterval(()=>{
+    simT++;
+    const n1=80+Math.sin(simT*0.15)*4+(Math.random()-0.5)*1.5;
+    const n2=34+Math.sin(simT*0.1)*2+(Math.random()-0.5)*1;
+    const gaz=Math.random()*3;
+    const ia=5+Math.random()*12;
+    const lat=6+Math.round(Math.random()*6);
+
+    chartData.r1.push(n1); chartData.r1.shift();
+    chartData.r2.push(n2); chartData.r2.shift();
+
+    document.getElementById('d-n1').textContent=n1.toFixed(0)+'%';
+    document.getElementById('d-n2').textContent=n2.toFixed(0)+'%';
+    document.getElementById('d-gaz').textContent=gaz.toFixed(1)+' ppm';
+    document.getElementById('d-ia').textContent=ia.toFixed(0)+'%';
+    document.getElementById('d-latency').textContent=lat+' ms';
+    document.getElementById('fill-r1').style.height=n1.toFixed(0)+'%';
+    document.getElementById('fill-r2').style.height=n2.toFixed(0)+'%';
+    document.getElementById('pct-r1').textContent=n1.toFixed(0)+'%';
+    document.getElementById('pct-r2').textContent=n2.toFixed(0)+'%';
+    drawChart();
+  }, 800);
+
+  setInterval(updateClock, 1000);
+  updateClock();
+  drawChart();
+}
+</script>
+</body>
+</html>

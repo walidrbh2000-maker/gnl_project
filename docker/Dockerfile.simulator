@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /opt/gnl_sim
+
+RUN pip install --no-cache-dir paho-mqtt
+
+COPY raspberry_pi/scripts/arduino_simulator.py .
+
+CMD ["python3", "arduino_simulator.py", "--mode", "mqtt", "--host", "mosquitto", "--port", "8883", "--scenario", "normal"]

@@ -1,0 +1,130 @@
+version: "3.8"
+
+# docker-compose.yml — Environnement de développement GNL IoT
+# Usage : docker compose up -d
+# Simule l'environnement Raspberry Pi 4 sans le matériel physique
+
+services:
+
+  # ── Mosquitto MQTT Broker ────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: gnl_mosquitto
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./raspberry_pi/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./raspberry_pi/mqtt/acl:/mosquitto/config/acl:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - gnl_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "test", "-m", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── InfluxDB 2.x ─────────────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    container_name: gnl_influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE:        setup
+      DOCKER_INFLUXDB_INIT_USERNAME:    gnl_admin
+      DOCKER_INFLUXDB_INIT_PASSWORD:    "GNL_Influx_2025!"
+      DOCKER_INFLUXDB_INIT_ORG:         gnl_org
+      DOCKER_INFLUXDB_INIT_BUCKET:      gnl_monitoring
+      DOCKER_INFLUXDB_INIT_RETENTION:   30d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "gnl_influx_token_secret_2025"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - gnl_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana-oss:10.4.0
+    container_name: gnl_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER:     gnl_admin
+      GF_SECURITY_ADMIN_PASSWORD: "GNL_Grafana_2025!"
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/gnl_dashboard.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./raspberry_pi/dashboard/grafana_dashboard.json:/etc/grafana/provisioning/dashboards/gnl_dashboard.json:ro
+    networks:
+      - gnl_net
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+
+  # ── Simulateur Arduino (pour développement sans hardware) ────────────────────
+  arduino_simulator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.simulator
+    container_name: gnl_arduino_sim
+    environment:
+      MQTT_HOST:  mosquitto
+      MQTT_PORT:  "8883"
+      SIM_SPEED:  "2"    # intervalle en secondes entre mesures
+    networks:
+      - gnl_net
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    profiles:
+      - simulation   # activer avec : docker compose --profile simulation up
+
+  # ── API REST + Edge AI ────────────────────────────────────────────────────────
+  gnl_edge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.edge
+    container_name: gnl_edge_node
+    ports:
+      - "5000:5000"
+    environment:
+      MQTT_HOST:       mosquitto
+      INFLUX_URL:      http://influxdb:8086
+      INFLUX_TOKEN:    gnl_influx_token_secret_2025
+      GNL_JWT_SECRET:  gnl_jwt_secret_change_in_prod
+      SERIAL_PORT:     SIMULATED   # mode simulé sans Arduino
+    volumes:
+      - ./raspberry_pi:/opt/gnl:ro
+      - gnl_logs:/var/log/gnl
+    networks:
+      - gnl_net
+    depends_on:
+      - mosquitto
+      - influxdb
+    restart: unless-stopped
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
+  influxdb_config:
+  grafana_data:
+  gnl_logs:
+
+networks:
+  gnl_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
