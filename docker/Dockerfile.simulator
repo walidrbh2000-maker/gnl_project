@@ -1,19 +1,54 @@
+# ============================================================
+# Dockerfile.simulator
+# Fix Bug #3 : `--port 8883` était hardcodé dans le CMD exec-form,
+# écrasant la valeur de MQTT_PORT transmise par docker-compose.
+#
+# Correction : CMD en shell-form  →  $MQTT_PORT est bien expandé.
+# ============================================================
+
 FROM python:3.11-slim
 
-# Métadonnées
-LABEL maintainer="M2 RSID 2025-2026"
-LABEL description="GNL IoT — Simulateur Arduino (développement sans hardware)"
+# --- Métadonnées ---
+LABEL maintainer="Khidmeti <dev@khidmeti.dz>" \
+      description="Simulateur MQTT Khidmeti"
 
-WORKDIR /opt/gnl_sim
+# --- Dépendances système minimales ---
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Installation dépendance MQTT uniquement
-RUN pip install --no-cache-dir paho-mqtt==2.0.0
+# --- Répertoire de travail ---
+WORKDIR /app
 
-# context = racine projet → raspberry_pi/scripts/ accessible directement
-COPY raspberry_pi/scripts/arduino_simulator.py .
+# --- Dépendances Python ---
+# Copier d'abord requirements pour bénéficier du cache Docker layer
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python3", "arduino_simulator.py", \
-     "--mode", "mqtt", \
-     "--host", "mosquitto", \
-     "--port", "8883", \
-     "--scenario", "normal"]
+# --- Code source ---
+COPY . .
+
+# --- Variables d'environnement par défaut ---
+# Surchargeables dans docker-compose ou au runtime
+ENV MQTT_HOST=gnl_mosquitto \
+    MQTT_PORT=1883 \
+    MQTT_USER="" \
+    MQTT_PASSWORD="" \
+    PYTHONUNBUFFERED=1
+
+# --- Healthcheck interne ---
+# Vérifie que le processus Python est vivant
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD pgrep -f "simulator.py" > /dev/null || exit 1
+
+# --- Point d'entrée ---
+# IMPORTANT : shell-form (pas exec-form) pour que $MQTT_PORT
+# soit résolu depuis l'environnement au moment du lancement.
+# exec-form ["python", "simulator.py", "--port", "$MQTT_PORT"]
+# ne fait PAS l'expansion des variables shell → bug #3.
+CMD python simulator.py \
+        --host  "$MQTT_HOST" \
+        --port  "$MQTT_PORT" \
+        --user  "$MQTT_USER" \
+        --password "$MQTT_PASSWORD"
