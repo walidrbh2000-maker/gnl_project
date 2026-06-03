@@ -43,6 +43,9 @@ services:
           "$${MQTT_USER_ADMIN}" "$${MQTT_PASS_ADMIN}"
 
         chmod 600 /mosquitto/data/passwd
+        # /mosquitto/data est un volume nommé writable → chown autorisé ici
+        # (contrairement à /mosquitto/config qui est :ro)
+        chown mosquitto:mosquitto /mosquitto/data/passwd
         echo "[mosquitto] passwd créé dans /mosquitto/data/passwd"
         exec mosquitto -c /mosquitto/config/mosquitto.conf
 
